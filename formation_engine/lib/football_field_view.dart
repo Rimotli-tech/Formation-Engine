@@ -11,6 +11,7 @@ const String kPropX = 'posX'; // Number property inside PlayerVM
 const String kPropY = 'posY'; // Number property inside PlayerVM
 const String kPropRole = 'role'; // String property for Role
 const String kTestString = 'StringTester'; //...........Connecting or not
+
 // Note: List constants are removed as we now access instances directly
 // -----------------------------------------------------------------------------
 
@@ -33,9 +34,11 @@ class _FootballFieldViewState extends State<FootballFieldView> {
 
   // File Loader
   late final fileLoader = rive.FileLoader.fromAsset(
-    "assets/tactics_board_V4.riv",
+    "assets/tactics_board_V9.riv",
     riveFactory: rive.Factory.rive, // Required for C++ features
   );
+
+  //Debug Scanner
 
   @override
   void initState() {
@@ -71,14 +74,15 @@ class _FootballFieldViewState extends State<FootballFieldView> {
       }
 
       //Position player hard code test
-      final player1VM = _viewModelInstance!.viewModel('player_1');
+      final player1VM = _viewModelInstance!.viewModel('Player 2');
 
       if (player1VM != null) {
-        // 2. Set the X and Y coordinates (matching the 'posX' and 'posY' property names in Rive)
-        player1VM.number(kPropX)?.value = 50.0; // Hard-coded X
-        player1VM.number(kPropY)?.value = 25.0; // Hard-coded Y
-
-        print("Player 1 positioned successfully.");
+        player1VM.number(kPropX)?.value = 296; // Hard-coded X
+        player1VM.number(kPropY)?.value = 7.0; // Hard-coded Y
+        final colorProp = player1VM.color('teamColor');
+        if (colorProp != null) {
+          colorProp.value = const Color.fromARGB(255, 44, 2, 230);
+        }
       }
 
       // 2. Initial Sync
@@ -89,23 +93,18 @@ class _FootballFieldViewState extends State<FootballFieldView> {
     }
   }
 
-  /// Syncs the Flutter FormationEngine data to the specific Rive Properties
   void _syncFormation() {
     print('Sync formation is running');
     if (_viewModelInstance == null) return;
 
     final flutterPlayers = _formationEngine.players;
 
-    // Loop through the Flutter players and update the corresponding Rive Property
     for (int i = 0; i < flutterPlayers.length; i++) {
       final player = flutterPlayers[i];
 
-      // DYNAMIC ACCESS: Looks for 'player_1', 'player_2', etc.
-      // Ensure your Rive Data properties are renamed to match this pattern.
       final playerVM = _viewModelInstance!.viewModel('player_${i + 1}');
 
       if (playerVM != null) {
-        // Update Position (Relative to Pitch Artboard due to your bindings)
         playerVM.number(kPropX)?.value = player.position.dx; //
         playerVM.number(kPropY)?.value = player.position.dy;
 
