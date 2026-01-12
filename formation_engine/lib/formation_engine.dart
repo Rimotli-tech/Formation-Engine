@@ -3,10 +3,10 @@ import 'player_model.dart';
 
 class FormationEngine extends ChangeNotifier {
   List<Player> players = [];
-  String currentFormation = "4-4-2";
+  String currentFormation = "4-3-3";
 
   FormationEngine() {
-    calculateFormation("4-4-2"); // Default
+    calculateFormation("4-3-3"); // Default
   }
 
   void calculateFormation(String input) {

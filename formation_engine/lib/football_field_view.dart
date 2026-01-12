@@ -5,13 +5,13 @@ import 'formation_engine.dart';
 // -----------------------------------------------------------------------------
 // CONFIGURATION: Update these names to match your Rive File exactly!
 // -----------------------------------------------------------------------------
-const String kViewModelName = 'Instance'; // The name of the VM in Rive
-const String kPlayerListName = 'Players';     // The name of the List Property
-const String kItemViewModelName = 'Player';   // Name of the individual item VM (for creating new ones)
-const String kItemViewModelTestString = 'StringTester';
-const String kPropX = 'posX';                 // Number property for X position (0-100)
-const String kPropY = 'posY';                 // Number property for Y position (0-100)
-const String kPropRole = 'role';              // String property for Role (e.g. "GK", "ST")
+const String kViewModelName =
+    'TacticsVMInstance'; // Name of the Main VM Instance
+const String kPropX = 'posX'; // Number property inside PlayerVM
+const String kPropY = 'posY'; // Number property inside PlayerVM
+const String kPropRole = 'role'; // String property for Role
+const String kTestString = 'StringTester'; //...........Connecting or not
+// Note: List constants are removed as we now access instances directly
 // -----------------------------------------------------------------------------
 
 class FootballFieldView extends StatefulWidget {
@@ -22,9 +22,8 @@ class FootballFieldView extends StatefulWidget {
 }
 
 class _FootballFieldViewState extends State<FootballFieldView> {
+  final GlobalKey _rivePanelKey = GlobalKey();
 
-final GlobalKey _rivePanelKey = GlobalKey();
-  
   // 1. Initialize the Engine
   final FormationEngine _formationEngine = FormationEngine();
 
@@ -32,16 +31,15 @@ final GlobalKey _rivePanelKey = GlobalKey();
   rive.RiveWidgetController? _controller;
   rive.ViewModelInstance? _viewModelInstance;
 
-  // File Loader with Rive Factory (Required for Data Binding)
+  // File Loader
   late final fileLoader = rive.FileLoader.fromAsset(
-    "assets/tactics_board_V2.riv",
-    riveFactory: rive.Factory.rive, // [cite: 162] Use Factory.rive for C++ features
+    "assets/tactics_board_V4.riv",
+    riveFactory: rive.Factory.rive, // Required for C++ features
   );
 
   @override
   void initState() {
     super.initState();
-    // Listen to formation changes to update Rive
     _formationEngine.addListener(_syncFormation);
   }
 
@@ -49,90 +47,71 @@ final GlobalKey _rivePanelKey = GlobalKey();
   void dispose() {
     _formationEngine.removeListener(_syncFormation);
     _formationEngine.dispose();
-    _viewModelInstance?.dispose(); // [cite: 186] Dispose VM instance
+    _viewModelInstance?.dispose(); // Always dispose VM instances
     fileLoader.dispose();
     super.dispose();
   }
 
   /// Establishes the link between Flutter and the Rive View Model
   void _onRiveLoaded(rive.RiveWidgetController controller) {
-    if (_controller == controller) return; // Prevent re-binding
+    if (_controller == controller) return;
     _controller = controller;
 
     try {
-    // 1. Bind to the View Model
-    _viewModelInstance = controller.dataBind(rive.DataBind.byName(kViewModelName));
+      // 1. Bind to the Main View Model
+      _viewModelInstance = controller.dataBind(
+        rive.DataBind.byName(kViewModelName),
+      );
 
-    // --- ADD THE TEST CODE HERE ---
-    final testProp = _viewModelInstance?.string(kItemViewModelTestString);
-    if (testProp != null) {
-      testProp.value = "Connection Verified!"; //
-      print("Test String Property Set Successfully.");
-    }
-    // ------------------------------
+      //Test String Binding
+      final testStringVM = _viewModelInstance!.string(kTestString);
 
-    _syncFormation();
-    setState(() {}); 
-  } catch (e) {
-    debugPrint('Rive Binding Error: $e');
-  }
+      if (testStringVM != null) {
+        testStringVM.value = "UPDATED!"; //
+      }
 
-    try {
-      // 1. Bind to the View Model by name [cite: 178]
-      _viewModelInstance = controller.dataBind(rive.DataBind.byName(kViewModelName));
+      //Position player hard code test
+      final player1VM = _viewModelInstance!.viewModel('player_1');
+
+      if (player1VM != null) {
+        // 2. Set the X and Y coordinates (matching the 'posX' and 'posY' property names in Rive)
+        player1VM.number(kPropX)?.value = 50.0; // Hard-coded X
+        player1VM.number(kPropY)?.value = 25.0; // Hard-coded Y
+
+        print("Player 1 positioned successfully.");
+      }
 
       // 2. Initial Sync
       _syncFormation();
-      
-      setState(() {}); // Rebuild to show controls if needed
+      setState(() {});
     } catch (e) {
       debugPrint('Rive Binding Error: $e');
     }
   }
 
-  /// Syncs the Flutter FormationEngine data to the Rive List Property
+  /// Syncs the Flutter FormationEngine data to the specific Rive Properties
   void _syncFormation() {
-    if (_viewModelInstance == null || _controller == null) return;
-
-    // A. Access the List Property dynamically 
-    // We use 'final' here instead of an explicit type because the SDK 
-    // does not export the specific List class name.
-    final rivePlayersList = _viewModelInstance!.list(kPlayerListName);
-    
-    if (rivePlayersList == null) return;
+    print('Sync formation is running');
+    if (_viewModelInstance == null) return;
 
     final flutterPlayers = _formationEngine.players;
 
-    // B. Adjust List Size: Add/Remove Rive items to match Flutter count
-    while (rivePlayersList.length < flutterPlayers.length) {
-      // Create a new Player VM instance (using the item name from Editor)
-      final newItem = _controller!.file.viewModelByName(kItemViewModelName)?.createInstance();
-      if (newItem != null) {
-        rivePlayersList.add(newItem); //  Add instance to list
-      } else {
-        break; // Stop if we can't create items
-      }
-    }
-    while (rivePlayersList.length > flutterPlayers.length) {
-      rivePlayersList.removeAt(rivePlayersList.length - 1); //  Remove instance
-    }
-
-    // C. Update Properties for each player
+    // Loop through the Flutter players and update the corresponding Rive Property
     for (int i = 0; i < flutterPlayers.length; i++) {
       final player = flutterPlayers[i];
-      final riveItem = rivePlayersList[i]; //  Access by index
 
-      // Update X Position
-      final xProp = riveItem.number(kPropX); 
-      if (xProp != null) xProp.value = player.position.dx; // [cite: 9] Update Number
+      // DYNAMIC ACCESS: Looks for 'player_1', 'player_2', etc.
+      // Ensure your Rive Data properties are renamed to match this pattern.
+      final playerVM = _viewModelInstance!.viewModel('player_${i + 1}');
 
-      // Update Y Position
-      final yProp = riveItem.number(kPropY);
-      if (yProp != null) yProp.value = player.position.dy;
+      if (playerVM != null) {
+        // Update Position (Relative to Pitch Artboard due to your bindings)
+        playerVM.number(kPropX)?.value = player.position.dx; //
+        playerVM.number(kPropY)?.value = player.position.dy;
 
-      // Update Role Text
-      final roleProp = riveItem.string(kPropRole);
-      if (roleProp != null) roleProp.value = player.role; // [cite: 10] Update String
+        // Update Role (if you added this property to the PlayerVM)
+        playerVM.string(kPropRole)?.value = player.role; //
+      }
     }
   }
 
@@ -161,36 +140,41 @@ final GlobalKey _rivePanelKey = GlobalKey();
               ],
             ),
           ),
-          
+
           // Rive Board
           Expanded(
             child: rive.RiveWidgetBuilder(
+              stateMachineSelector: rive.StateMachineSelector.byName(
+                'State Machine 1',
+              ),
               fileLoader: fileLoader,
               builder: (context, state) => switch (state) {
-                rive.RiveLoading() => const Center(child: CircularProgressIndicator()),
-                rive.RiveFailed() => Center(child: Text(state.error.toString())),
+                rive.RiveLoading() => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+                rive.RiveFailed() => Center(
+                  child: Text(state.error.toString()),
+                ),
                 rive.RiveLoaded() => Builder(
                   builder: (context) {
                     // Trigger binding logic once loaded
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       _onRiveLoaded(state.controller);
                     });
-                    
+
                     return rive.RiveWidget(
                       controller: state.controller,
                       fit: rive.Fit.contain,
-                      layoutScaleFactor: 0.3,
+                      layoutScaleFactor: 0.3, // Adjust as needed
                       alignment: Alignment.topCenter,
-                      // Ensure we use the Rive Renderer for data binding features
-                      //useSharedTexture: true, 
                     );
-                  }
+                  },
                 ),
               },
             ),
           ),
-          
-          // Debug/Info Area
+
+          // Debug Info
           Container(
             height: 100,
             padding: const EdgeInsets.all(16),
@@ -198,7 +182,7 @@ final GlobalKey _rivePanelKey = GlobalKey();
               "Current Formation: ${_formationEngine.currentFormation}",
               style: const TextStyle(color: Colors.white70),
             ),
-          )
+          ),
         ],
       ),
     );
@@ -214,7 +198,9 @@ final GlobalKey _rivePanelKey = GlobalKey();
         onSelected: (_) => _formationEngine.calculateFormation(formation),
         backgroundColor: Colors.white10,
         selectedColor: Colors.blueAccent,
-        labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.white70),
+        labelStyle: TextStyle(
+          color: isSelected ? Colors.white : Colors.white70,
+        ),
         checkmarkColor: Colors.white,
       ),
     );
