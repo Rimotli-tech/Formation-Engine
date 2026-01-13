@@ -23,7 +23,7 @@ class FootballFieldView extends StatefulWidget {
 }
 
 class _FootballFieldViewState extends State<FootballFieldView> {
-  final GlobalKey _rivePanelKey = GlobalKey();
+  //final GlobalKey _rivePanelKey = GlobalKey();
 
   // 1. Initialize the Engine
   final FormationEngine _formationEngine = FormationEngine();
@@ -73,17 +73,44 @@ class _FootballFieldViewState extends State<FootballFieldView> {
         testStringVM.value = "UPDATED!"; //
       }
 
-      //Position player hard code test
-      final player1VM = _viewModelInstance!.viewModel('Player 2');
+      // //TESTING: Position player hard code test
+      // final player1VM = _viewModelInstance!.viewModel('Player 1');
+      // final player2VM = _viewModelInstance!.viewModel('Player 2');
+      // final player3VM = _viewModelInstance!.viewModel('Player 3');
+      // final player4VM = _viewModelInstance!.viewModel('Player 4');
 
-      if (player1VM != null) {
-        player1VM.number(kPropX)?.value = 296; // Hard-coded X
-        player1VM.number(kPropY)?.value = 7.0; // Hard-coded Y
-        final colorProp = player1VM.color('teamColor');
-        if (colorProp != null) {
-          colorProp.value = const Color.fromARGB(255, 44, 2, 230);
-        }
-      }
+      // if (player1VM != null) {
+      //   player1VM.number(kPropX)?.value = 196; // Hard-coded X
+      //   player1VM.number(kPropY)?.value = 2.0; // Hard-coded Y
+      //   final colorProp = player1VM.color('teamColor');
+      //   if (colorProp != null) {
+      //     colorProp.value = const Color.fromARGB(255, 255, 18, 18);
+      //   }
+      // }
+      // if (player2VM != null) {
+      //   player2VM.number(kPropX)?.value = 296; // Hard-coded X
+      //   player2VM.number(kPropY)?.value = 5.0; // Hard-coded Y
+      //   final colorProp = player2VM.color('teamColor');
+      //   if (colorProp != null) {
+      //     colorProp.value = const Color.fromARGB(255, 9, 126, 9);
+      //   }
+      // }
+      // if (player3VM != null) {
+      //   player3VM.number(kPropX)?.value = 396; // Hard-coded X
+      //   player3VM.number(kPropY)?.value = 7.0; // Hard-coded Y
+      //   final colorProp = player3VM.color('teamColor');
+      //   if (colorProp != null) {
+      //     colorProp.value = const Color.fromARGB(255, 44, 2, 230);
+      //   }
+      // }
+      // if (player4VM != null) {
+      //   player4VM.number(kPropX)?.value = 496; // Hard-coded X
+      //   player4VM.number(kPropY)?.value = 10.0; // Hard-coded Y
+      //   final colorProp = player4VM.color('teamColor');
+      //   if (colorProp != null) {
+      //     colorProp.value = const Color.fromARGB(255, 222, 2, 230);
+      //   }
+      // }
 
       // 2. Initial Sync
       _syncFormation();
@@ -99,17 +126,31 @@ class _FootballFieldViewState extends State<FootballFieldView> {
 
     final flutterPlayers = _formationEngine.players;
 
+    // 1. Define the actual Rive artboard dimensions
+    const double artboardWidth = 1549.0;
+    const double artboardHeight = 911.0;
+
     for (int i = 0; i < flutterPlayers.length; i++) {
       final player = flutterPlayers[i];
 
-      final playerVM = _viewModelInstance!.viewModel('player_${i + 1}');
+      // FIX 1: Use Capital 'P' and a space to match the Rive nested names
+      final playerVM = _viewModelInstance!.viewModel('Player ${i + 1}');
 
       if (playerVM != null) {
-        playerVM.number(kPropX)?.value = player.position.dx; //
-        playerVM.number(kPropY)?.value = player.position.dy;
+        double riveX = (50 - player.position.dy) / 100 * artboardWidth;
+        double riveY = (player.position.dx - 50) / 100 * artboardHeight;
 
-        // Update Role (if you added this property to the PlayerVM)
-        playerVM.string(kPropRole)?.value = player.role; //
+        playerVM.number(kPropX)?.value = riveX;
+        playerVM.number(kPropY)?.value = riveY;
+
+        //color
+        final teamColor = playerVM.color('teamColor');
+        if (teamColor != null) {
+          teamColor.value = Colors.blue;
+        }
+
+        // Update Role
+        playerVM.string(kPropRole)?.value = player.role;
       }
     }
   }
