@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:rive/rive.dart' as rive;
 import 'formation_engine.dart';
+import 'dart:math';
 
 const String kViewModelName = 'TacticsVMInstance';
 
@@ -20,104 +22,145 @@ class FootballFieldView extends StatefulWidget {
   State<FootballFieldView> createState() => _FootballFieldViewState();
 }
 
-class _FootballFieldViewState extends State<FootballFieldView> {
-  // 1. Initialize the Engine
+class _FootballFieldViewState extends State<FootballFieldView>
+    with SingleTickerProviderStateMixin {
   final FormationEngine _formationEngine = FormationEngine();
 
-  // Rive State References
+  // Rive State
   rive.RiveWidgetController? _controller;
   rive.ViewModelInstance? _viewModelInstance;
 
-  // Track if this is the first load to snap positions instead of animating
-  bool _isFirstLoad = true;
+  // Animation
+  late Ticker _ticker;
+  final List<Offset> _currentPositions = List.generate(
+    11,
+    (_) => const Offset(0, 0),
+  );
 
-  // File Loader
+  final double _artboardWidth = 1549.0;
+  final double _artboardHeight = 911.0;
+
   late final fileLoader = rive.FileLoader.fromAsset(
-    "assets/tactics_board_V19.riv",
-    riveFactory: rive.Factory.rive, // Required for C++ features
+    "assets/formation_engine_noscript_V2.riv",
+    riveFactory: rive.Factory.rive,
   );
 
   @override
   void initState() {
     super.initState();
-    _formationEngine.addListener(_syncFormation);
+    _formationEngine.addListener(_onFormationChanged);
+    _ticker = createTicker(_onTick);
   }
 
   @override
   void dispose() {
-    _formationEngine.removeListener(_syncFormation);
+    _ticker.dispose();
+    _formationEngine.removeListener(_onFormationChanged);
     _formationEngine.dispose();
-    _viewModelInstance?.dispose(); // Always dispose VM instances
+    _viewModelInstance?.dispose();
     fileLoader.dispose();
     super.dispose();
   }
 
-  /// Establishes the link between Flutter and the Rive View Model
+  void _onFormationChanged() {
+    if (!_ticker.isActive) _ticker.start();
+
+    if (_viewModelInstance != null) {
+      final flutterPlayers = _formationEngine.players;
+      for (int i = 0; i < flutterPlayers.length; i++) {
+        final playerVM = _viewModelInstance!.viewModel('player${i + 1}');
+        if (playerVM != null) {
+          playerVM.string(kPropRole)?.value = flutterPlayers[i].role;
+          playerVM.color(kPropTeamColor)?.value = _formationEngine.teamColor;
+        }
+      }
+    }
+  }
+
   void _onRiveLoaded(rive.RiveWidgetController controller) {
     if (_controller == controller) return;
     _controller = controller;
 
     try {
-      // 1. Bind to the Main View Model
       _viewModelInstance = controller.dataBind(
         rive.DataBind.byName(kViewModelName),
       );
 
-      // 2. Initial Sync
-      _syncFormation();
-      _connectionTestString();
+      _viewModelInstance?.string(kConnectStatusString)?.value =
+          'Connection Active';
+      _snapToFormation();
+      _ticker.start();
       setState(() {});
     } catch (e) {
       debugPrint('Rive Binding Error: $e');
     }
   }
 
-  void _connectionTestString() {
-    final connectStatusVM = _viewModelInstance?.string(kConnectStatusString);
-    if (connectStatusVM != null) {
-      connectStatusVM.value = 'Connection Active';
+  void _snapToFormation() {
+    if (_viewModelInstance == null) return;
+    final flutterPlayers = _formationEngine.players;
+
+    for (int i = 0; i < flutterPlayers.length; i++) {
+      Offset target = _convertToArtboard(flutterPlayers[i].position);
+      _currentPositions[i] = target;
+
+      final playerVM = _viewModelInstance!.viewModel('player${i + 1}');
+      if (playerVM != null) {
+        playerVM.number(kPropX)?.value = target.dx;
+        playerVM.number(kPropY)?.value = target.dy;
+        playerVM.color(kPropTeamColor)?.value = _formationEngine.teamColor;
+        playerVM.string(kPropRole)?.value = flutterPlayers[i].role;
+      }
     }
   }
 
-  void _syncFormation() {
+  void _onTick(Duration elapsed) {
     if (_viewModelInstance == null) return;
 
     final flutterPlayers = _formationEngine.players;
-
-    const double artboardWidth = 1549.0;
-    const double artboardHeight = 911.0;
+    const double speed = 5.0;
+    const double dt = 0.016;
+    final double lerpFactor = 1 - exp(-speed * dt);
+    const double threshold = 0.5;
 
     for (int i = 0; i < flutterPlayers.length; i++) {
-      final player = flutterPlayers[i];
+      Offset target = _convertToArtboard(flutterPlayers[i].position);
+      Offset current = _currentPositions[i];
+      double dist = (target - current).distance;
 
-      final playerVM = _viewModelInstance!.viewModel('player${i + 1}');
+      if (dist > threshold) {
+        double newX = current.dx + (target.dx - current.dx) * lerpFactor;
+        double newY = current.dy + (target.dy - current.dy) * lerpFactor;
 
-      if (playerVM != null) {
-        double riveTargetX = (50 - player.position.dy) / 100 * artboardWidth;
-        double riveTargetY = (player.position.dx - 50) / 100 * artboardHeight;
+        _currentPositions[i] = Offset(newX, newY);
 
-        playerVM.number(kPropTargetX)?.value = riveTargetX;
-        playerVM.number(kPropTargetY)?.value = riveTargetY;
-        debugPrint(riveTargetY.toString());
-
-        if (_isFirstLoad) {
-          playerVM.number(kPropX)?.value = riveTargetX;
-          playerVM.number(kPropY)?.value = riveTargetY;
+        final playerVM = _viewModelInstance!.viewModel('player${i + 1}');
+        if (playerVM != null) {
+          playerVM.number(kPropX)?.value = newX;
+          playerVM.number(kPropY)?.value = newY;
+          playerVM.number(kPropTargetX)?.value = target.dx;
+          playerVM.number(kPropTargetY)?.value = target.dy;
         }
-
-        final teamColorProp = playerVM.color(kPropTeamColor);
-        if (teamColorProp != null) {
-          teamColorProp.value = _formationEngine.teamColor;
+      } else {
+        if (dist > 0) {
+          _currentPositions[i] = target;
+          final playerVM = _viewModelInstance!.viewModel('player${i + 1}');
+          playerVM?.number(kPropX)?.value = target.dx;
+          playerVM?.number(kPropY)?.value = target.dy;
         }
-
-        playerVM.string(kPropRole)?.value = player.role;
       }
     }
+  }
 
-    // After first sync, disable the "teleport" flag
-    if (_isFirstLoad) {
-      _isFirstLoad = false;
-    }
+  Offset _convertToArtboard(Offset enginePos) {
+    final double offsetX = -(_artboardWidth * 0.75) * 0.5;
+    final double offsetY = -_artboardHeight * 0.5;
+    double depth = enginePos.dy.clamp(0.0, 100.0);
+    double width = enginePos.dx.clamp(0.0, 100.0);
+
+    double riveX = (1 - (depth / 100)) * (_artboardWidth * 0.75);
+    double riveY = (width / 100) * _artboardHeight;
+    return Offset(riveX + offsetX, riveY + offsetY);
   }
 
   @override
@@ -131,9 +174,6 @@ class _FootballFieldViewState extends State<FootballFieldView> {
       ),
       body: Column(
         children: [
-          // -------------------------------------------------------
-          // 1. Formation Controls
-          // -------------------------------------------------------
           SizedBox(
             height: 60,
             child: ListView(
@@ -142,15 +182,12 @@ class _FootballFieldViewState extends State<FootballFieldView> {
               children: [
                 _buildFormationBtn("4-4-2"),
                 _buildFormationBtn("4-3-3"),
+                _buildFormationBtn("4-2-3-1"),
                 _buildFormationBtn("3-5-2"),
                 _buildFormationBtn("5-3-2"),
               ],
             ),
           ),
-
-          // -------------------------------------------------------
-          // 2. Color Controls
-          // -------------------------------------------------------
           Container(
             height: 50,
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -161,7 +198,7 @@ class _FootballFieldViewState extends State<FootballFieldView> {
                   style: TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(width: 10),
-                _buildColorBtn(const Color.fromARGB(255, 243, 47, 33)), // Red
+                _buildColorBtn(const Color.fromARGB(255, 243, 47, 33)),
                 _buildColorBtn(Colors.blueAccent),
                 _buildColorBtn(Colors.white),
                 _buildColorBtn(Colors.amber),
@@ -169,10 +206,6 @@ class _FootballFieldViewState extends State<FootballFieldView> {
               ],
             ),
           ),
-
-          // -------------------------------------------------------
-          // 3. Rive Board
-          // -------------------------------------------------------
           Expanded(
             child: rive.RiveWidgetBuilder(
               stateMachineSelector: rive.StateMachineSelector.byName(
@@ -188,11 +221,9 @@ class _FootballFieldViewState extends State<FootballFieldView> {
                 ),
                 rive.RiveLoaded() => Builder(
                   builder: (context) {
-                    // Trigger binding logic once loaded
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       _onRiveLoaded(state.controller);
                     });
-
                     return rive.RiveWidget(
                       controller: state.controller,
                       fit: rive.Fit.contain,
@@ -204,13 +235,8 @@ class _FootballFieldViewState extends State<FootballFieldView> {
               },
             ),
           ),
-
-          // -------------------------------------------------------
-          // 4. Debug Info
-          // -------------------------------------------------------
           Container(
             height: 80,
-            padding: const EdgeInsets.all(16),
             alignment: Alignment.center,
             child: Text(
               "Formation: ${_formationEngine.currentFormation}",
@@ -256,10 +282,6 @@ class _FootballFieldViewState extends State<FootballFieldView> {
           border: isSelected
               ? Border.all(color: Colors.greenAccent, width: 3)
               : Border.all(color: Colors.white24, width: 1),
-          boxShadow: [
-            if (isSelected)
-              BoxShadow(color: color.withOpacity(0.5), blurRadius: 8),
-          ],
         ),
       ),
     );

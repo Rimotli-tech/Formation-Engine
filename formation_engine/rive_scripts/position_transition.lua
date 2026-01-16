@@ -11,7 +11,6 @@ type FormationEngine = {
 local PLAYER_COUNT = 11
 local ARRIVAL_THRESHOLD = 0.1
 local TRAIL_LENGTH_RATIO = 1 / 3 -- Trail is 1/3 of total distance
-
 local TRAIL_FADE_SPEED = 3 -- How fast the trail fades out after arrival
 
 type PlayerState = {
