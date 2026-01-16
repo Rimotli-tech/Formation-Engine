@@ -2,18 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:rive/rive.dart' as rive;
 import 'formation_engine.dart';
 
-// -----------------------------------------------------------------------------
-// CONFIGURATION: Update these names to match your Rive File exactly!
-// -----------------------------------------------------------------------------
-const String kViewModelName =
-    'TacticsVMInstance'; // Name of the Main VM Instance
-const String kPropX = 'posX'; // Number property inside PlayerVM
-const String kPropY = 'posY'; // Number property inside PlayerVM
-const String kPropRole = 'role'; // String property for Role
-const String kTestString = 'StringTester'; //...........Connecting or not
+const String kViewModelName = 'TacticsVMInstance';
 
-// Note: List constants are removed as we now access instances directly
-// -----------------------------------------------------------------------------
+// Properties
+const String kPropX = 'posX';
+const String kPropY = 'posY';
+const String kPropTargetX = 'targetX';
+const String kPropTargetY = 'targetY';
+const String kPropRole = 'role';
+const String kPropTeamColor = 'teamColor';
+const String kConnectStatusString = 'connectionStatus';
 
 class FootballFieldView extends StatefulWidget {
   const FootballFieldView({super.key});
@@ -23,8 +21,6 @@ class FootballFieldView extends StatefulWidget {
 }
 
 class _FootballFieldViewState extends State<FootballFieldView> {
-  //final GlobalKey _rivePanelKey = GlobalKey();
-
   // 1. Initialize the Engine
   final FormationEngine _formationEngine = FormationEngine();
 
@@ -32,13 +28,14 @@ class _FootballFieldViewState extends State<FootballFieldView> {
   rive.RiveWidgetController? _controller;
   rive.ViewModelInstance? _viewModelInstance;
 
+  // Track if this is the first load to snap positions instead of animating
+  bool _isFirstLoad = true;
+
   // File Loader
   late final fileLoader = rive.FileLoader.fromAsset(
-    "assets/tactics_board_V9.riv",
+    "assets/tactics_board_V19.riv",
     riveFactory: rive.Factory.rive, // Required for C++ features
   );
-
-  //Debug Scanner
 
   @override
   void initState() {
@@ -66,92 +63,60 @@ class _FootballFieldViewState extends State<FootballFieldView> {
         rive.DataBind.byName(kViewModelName),
       );
 
-      //Test String Binding
-      final testStringVM = _viewModelInstance!.string(kTestString);
-
-      if (testStringVM != null) {
-        testStringVM.value = "UPDATED!"; //
-      }
-
-      // //TESTING: Position player hard code test
-      // final player1VM = _viewModelInstance!.viewModel('Player 1');
-      // final player2VM = _viewModelInstance!.viewModel('Player 2');
-      // final player3VM = _viewModelInstance!.viewModel('Player 3');
-      // final player4VM = _viewModelInstance!.viewModel('Player 4');
-
-      // if (player1VM != null) {
-      //   player1VM.number(kPropX)?.value = 196; // Hard-coded X
-      //   player1VM.number(kPropY)?.value = 2.0; // Hard-coded Y
-      //   final colorProp = player1VM.color('teamColor');
-      //   if (colorProp != null) {
-      //     colorProp.value = const Color.fromARGB(255, 255, 18, 18);
-      //   }
-      // }
-      // if (player2VM != null) {
-      //   player2VM.number(kPropX)?.value = 296; // Hard-coded X
-      //   player2VM.number(kPropY)?.value = 5.0; // Hard-coded Y
-      //   final colorProp = player2VM.color('teamColor');
-      //   if (colorProp != null) {
-      //     colorProp.value = const Color.fromARGB(255, 9, 126, 9);
-      //   }
-      // }
-      // if (player3VM != null) {
-      //   player3VM.number(kPropX)?.value = 396; // Hard-coded X
-      //   player3VM.number(kPropY)?.value = 7.0; // Hard-coded Y
-      //   final colorProp = player3VM.color('teamColor');
-      //   if (colorProp != null) {
-      //     colorProp.value = const Color.fromARGB(255, 44, 2, 230);
-      //   }
-      // }
-      // if (player4VM != null) {
-      //   player4VM.number(kPropX)?.value = 496; // Hard-coded X
-      //   player4VM.number(kPropY)?.value = 10.0; // Hard-coded Y
-      //   final colorProp = player4VM.color('teamColor');
-      //   if (colorProp != null) {
-      //     colorProp.value = const Color.fromARGB(255, 222, 2, 230);
-      //   }
-      // }
-
       // 2. Initial Sync
       _syncFormation();
+      _connectionTestString();
       setState(() {});
     } catch (e) {
       debugPrint('Rive Binding Error: $e');
     }
   }
 
+  void _connectionTestString() {
+    final connectStatusVM = _viewModelInstance?.string(kConnectStatusString);
+    if (connectStatusVM != null) {
+      connectStatusVM.value = 'Connection Active';
+    }
+  }
+
   void _syncFormation() {
-    print('Sync formation is running');
     if (_viewModelInstance == null) return;
 
     final flutterPlayers = _formationEngine.players;
 
-    // 1. Define the actual Rive artboard dimensions
     const double artboardWidth = 1549.0;
     const double artboardHeight = 911.0;
 
     for (int i = 0; i < flutterPlayers.length; i++) {
       final player = flutterPlayers[i];
 
-      // FIX 1: Use Capital 'P' and a space to match the Rive nested names
-      final playerVM = _viewModelInstance!.viewModel('Player ${i + 1}');
+      final playerVM = _viewModelInstance!.viewModel('player${i + 1}');
 
       if (playerVM != null) {
-        double riveX = (50 - player.position.dy) / 100 * artboardWidth;
-        double riveY = (player.position.dx - 50) / 100 * artboardHeight;
+        double riveTargetX = (50 - player.position.dy) / 100 * artboardWidth;
+        double riveTargetY = (player.position.dx - 50) / 100 * artboardHeight;
 
-        playerVM.number(kPropX)?.value = riveX;
-        playerVM.number(kPropY)?.value = riveY;
+        playerVM.number(kPropTargetX)?.value = riveTargetX;
+        playerVM.number(kPropTargetY)?.value = riveTargetY;
+        debugPrint(riveTargetY.toString());
 
-        //color
-        final teamColor = playerVM.color('teamColor');
-        if (teamColor != null) {
-          teamColor.value = Colors.blue;
+        if (_isFirstLoad) {
+          playerVM.number(kPropX)?.value = riveTargetX;
+          playerVM.number(kPropY)?.value = riveTargetY;
         }
 
-        // Update Role
+        final teamColorProp = playerVM.color(kPropTeamColor);
+        if (teamColorProp != null) {
+          teamColorProp.value = _formationEngine.teamColor;
+        }
+
         playerVM.string(kPropRole)?.value = player.role;
       }
+    }
+
+    // After first sync, disable the "teleport" flag
+    if (_isFirstLoad) {
+      _isFirstLoad = false;
     }
   }
 
@@ -166,7 +131,9 @@ class _FootballFieldViewState extends State<FootballFieldView> {
       ),
       body: Column(
         children: [
-          // Formation Controls
+          // -------------------------------------------------------
+          // 1. Formation Controls
+          // -------------------------------------------------------
           SizedBox(
             height: 60,
             child: ListView(
@@ -181,7 +148,31 @@ class _FootballFieldViewState extends State<FootballFieldView> {
             ),
           ),
 
-          // Rive Board
+          // -------------------------------------------------------
+          // 2. Color Controls
+          // -------------------------------------------------------
+          Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                const Text(
+                  "Team Color: ",
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(width: 10),
+                _buildColorBtn(const Color.fromARGB(255, 243, 47, 33)), // Red
+                _buildColorBtn(Colors.blueAccent),
+                _buildColorBtn(Colors.white),
+                _buildColorBtn(Colors.amber),
+                _buildColorBtn(Colors.black),
+              ],
+            ),
+          ),
+
+          // -------------------------------------------------------
+          // 3. Rive Board
+          // -------------------------------------------------------
           Expanded(
             child: rive.RiveWidgetBuilder(
               stateMachineSelector: rive.StateMachineSelector.byName(
@@ -205,7 +196,7 @@ class _FootballFieldViewState extends State<FootballFieldView> {
                     return rive.RiveWidget(
                       controller: state.controller,
                       fit: rive.Fit.contain,
-                      layoutScaleFactor: 0.3, // Adjust as needed
+                      layoutScaleFactor: 0.3,
                       alignment: Alignment.topCenter,
                     );
                   },
@@ -214,13 +205,16 @@ class _FootballFieldViewState extends State<FootballFieldView> {
             ),
           ),
 
-          // Debug Info
+          // -------------------------------------------------------
+          // 4. Debug Info
+          // -------------------------------------------------------
           Container(
-            height: 100,
+            height: 80,
             padding: const EdgeInsets.all(16),
+            alignment: Alignment.center,
             child: Text(
-              "Current Formation: ${_formationEngine.currentFormation}",
-              style: const TextStyle(color: Colors.white70),
+              "Formation: ${_formationEngine.currentFormation}",
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
             ),
           ),
         ],
@@ -242,6 +236,31 @@ class _FootballFieldViewState extends State<FootballFieldView> {
           color: isSelected ? Colors.white : Colors.white70,
         ),
         checkmarkColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        side: BorderSide.none,
+      ),
+    );
+  }
+
+  Widget _buildColorBtn(Color color) {
+    bool isSelected = _formationEngine.teamColor == color;
+    return GestureDetector(
+      onTap: () => _formationEngine.updateTeamColor(color),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: isSelected
+              ? Border.all(color: Colors.greenAccent, width: 3)
+              : Border.all(color: Colors.white24, width: 1),
+          boxShadow: [
+            if (isSelected)
+              BoxShadow(color: color.withOpacity(0.5), blurRadius: 8),
+          ],
+        ),
       ),
     );
   }
