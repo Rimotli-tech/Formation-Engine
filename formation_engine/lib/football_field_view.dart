@@ -41,7 +41,7 @@ class _FootballFieldViewState extends State<FootballFieldView>
   final double _artboardHeight = 911.0;
 
   late final fileLoader = rive.FileLoader.fromAsset(
-    "assets/formation_engine_noscript_V2.riv",
+    "assets/tactics_board_V23.riv",
     riveFactory: rive.Factory.rive,
   );
 
@@ -166,44 +166,19 @@ class _FootballFieldViewState extends State<FootballFieldView>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 37, 51, 77),
-      appBar: AppBar(
-        title: const Text("Tactics Board"),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      backgroundColor: const Color.fromARGB(255, 11, 13, 15),
+      // appBar: AppBar(
+      //   title: const Text("Formation Engine"),
+      //   backgroundColor: Colors.transparent,
+      //   elevation: 0,
+      // ),
       body: Column(
         children: [
-          SizedBox(
-            height: 60,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                _buildFormationBtn("4-4-2"),
-                _buildFormationBtn("4-3-3"),
-                _buildFormationBtn("4-2-3-1"),
-                _buildFormationBtn("3-5-2"),
-                _buildFormationBtn("5-3-2"),
-              ],
-            ),
-          ),
-          Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                const Text(
-                  "Team Color: ",
-                  style: TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(width: 10),
-                _buildColorBtn(const Color.fromARGB(255, 243, 47, 33)),
-                _buildColorBtn(Colors.blueAccent),
-                _buildColorBtn(Colors.white),
-                _buildColorBtn(Colors.amber),
-                _buildColorBtn(Colors.black),
-              ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Image.asset('Formation_Engine_Logo.png'),
             ),
           ),
           Expanded(
@@ -227,7 +202,7 @@ class _FootballFieldViewState extends State<FootballFieldView>
                     return rive.RiveWidget(
                       controller: state.controller,
                       fit: rive.Fit.contain,
-                      layoutScaleFactor: 0.3,
+                      layoutScaleFactor: 1,
                       alignment: Alignment.topCenter,
                     );
                   },
@@ -239,50 +214,11 @@ class _FootballFieldViewState extends State<FootballFieldView>
             height: 80,
             alignment: Alignment.center,
             child: Text(
-              "Formation: ${_formationEngine.currentFormation}",
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
+              "Rive Runtime via Flutter",
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildFormationBtn(String formation) {
-    bool isSelected = _formationEngine.currentFormation == formation;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: FilterChip(
-        label: Text(formation),
-        selected: isSelected,
-        onSelected: (_) => _formationEngine.calculateFormation(formation),
-        backgroundColor: Colors.white10,
-        selectedColor: Colors.blueAccent,
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : Colors.white70,
-        ),
-        checkmarkColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        side: BorderSide.none,
-      ),
-    );
-  }
-
-  Widget _buildColorBtn(Color color) {
-    bool isSelected = _formationEngine.teamColor == color;
-    return GestureDetector(
-      onTap: () => _formationEngine.updateTeamColor(color),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: isSelected
-              ? Border.all(color: Colors.greenAccent, width: 3)
-              : Border.all(color: Colors.white24, width: 1),
-        ),
       ),
     );
   }
