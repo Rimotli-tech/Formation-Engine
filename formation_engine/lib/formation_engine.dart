@@ -18,7 +18,7 @@ class _FormationEngineState extends State<FormationEngine> {
   rive.ViewModelInstance? _viewModelInstance;
 
   late final fileLoader = rive.FileLoader.fromAsset(
-    "assets/tactics_board_V23.riv",
+    "assets/formation_engine_V7.riv",
     riveFactory: rive.Factory.rive,
   );
 
