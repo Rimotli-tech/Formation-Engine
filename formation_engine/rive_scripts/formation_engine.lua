@@ -1,134 +1,57 @@
--- Formation Engine: Physics Follower + Polar Sorting Logic
--- Logic: Hitbox (Input Driver) -> Target (Memory) -> Visual (Chase) -> Selection Math
+local FORMATIONS = require('formation_data')
+local Radar = require('radar_system')
+local ToolManager = require('tool_manager')
+local Utils = require('formation_utils')
 
-local FORMATIONS = require('FormationData')
+-- ======================================================================================
+-- TYPE DEFINITIONS
+-- ======================================================================================
+type PlayerState = Utils.PlayerState
+type ShapeState = Utils.ShapeState
+type Tool = ToolManager.Tool
 
-type PlayerState = {
-  vm: ViewModel,
-  posX: Property<number>,
-  posY: Property<number>,
-  targetX: Property<number>,
-  targetY: Property<number>,
-  hitboxX: Property<number>,
-  hitboxY: Property<number>,
-  speed: Property<number>,
-  isDragged: Property<boolean>,
-  isActive: Property<boolean>,
-}
-
-type SortablePoint = {
-  x: number,
-  y: number,
-  angle: number,
-}
-
-type ShapeState = {
-  vm: ViewModel,
-  v1x: Property<number>,
-  v1y: Property<number>,
-  v2x: Property<number>,
-  v2y: Property<number>,
-  v3x: Property<number>,
-  v3y: Property<number>,
-  v4x: Property<number>,
-  v4y: Property<number>,
-  centerX: Property<number>,
-  centerY: Property<number>,
-  btnVis: Property<number>,
-  shapeVis: Property<number>,
-  isCommitted: Property<boolean>,
-  confirmTrigger: PropertyTrigger,
-}
-
-type Coordinate = { number }
-type FormationData = { Coordinate }
-
-type FormationEngine = {
+type GameEngine = {
+  -- Core State
   players: { PlayerState },
   shape: ShapeState?,
   context: Context?,
   isInitialized: boolean,
   formationIndex: Property<number>?,
+  radarVM: ViewModel?,
+
+  -- Clipping / Bounds State
+  hasBounds: boolean,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+
+  -- Tool State
+  activeToolIndex: number,
+  tools: { [number]: Tool },
+  clearAll: boolean,
+  justCleared: boolean,
 }
 
-local PLAYER_COUNT = 11
-local ARRIVAL_THRESHOLD = 0.1
-
-local function updateSelectionShape(self: FormationEngine)
-  local s = self.shape
-  if not s then
-    return
+local function isPointInBounds(self: GameEngine, vec: Vector): boolean
+  if not self.hasBounds then
+    return true
   end
 
-  local activePoints: { SortablePoint } = {}
-  local avgX, avgY = 0, 0
-  local count = 0
-  local isMoving = false
-
-  for i, player in ipairs(self.players) do
-    if player.isActive and player.isActive.value == true then
-      local px = player.posX.value
-      local py = player.posY.value
-
-      table.insert(activePoints, {
-        x = px,
-        y = py,
-        angle = 0,
-      })
-
-      avgX = avgX + px
-      avgY = avgY + py
-      count = count + 1
-
-      if player.isDragged.value then
-        isMoving = true
-      end
-    end
-  end
-
-  if isMoving then
-    s.isCommitted.value = false
-  end
-
-  if count < 2 then
-    s.btnVis.value = 0
-    s.shapeVis.value = 0
-    s.isCommitted.value = false
-    return
-  end
-
-  local centerX = avgX / count
-  local centerY = avgY / count
-  s.centerX.value = centerX
-  s.centerY.value = centerY
-  s.btnVis.value = 100
-  s.shapeVis.value = 100
-
-  for _, pt in ipairs(activePoints) do
-    pt.angle = math.atan2(pt.y - centerY, pt.x - centerX)
-  end
-
-  table.sort(activePoints, function(a: SortablePoint, b: SortablePoint)
-    return a.angle < b.angle
-  end)
-
-  local p1 = activePoints[1] or { x = centerX, y = centerY }
-  local p2 = activePoints[2] or p1
-  local p3 = activePoints[3] or p2
-  local p4 = activePoints[4] or p3
-
-  s.v1x.value = p1.x
-  s.v1y.value = p1.y
-  s.v2x.value = p2.x
-  s.v2y.value = p2.y
-  s.v3x.value = p3.x
-  s.v3y.value = p3.y
-  s.v4x.value = p4.x
-  s.v4y.value = p4.y
+  -- We pass the Vector first, and a table of the 4 numbers second
+  return Utils.isPointInBounds(vec, {
+    minX = self.minX,
+    minY = self.minY,
+    maxX = self.maxX,
+    maxY = self.maxY,
+  })
 end
 
+-- ======================================================================================
+-- LOGIC: FORMATIONS
+-- ======================================================================================
 local function applyFormation(
-  self: FormationEngine,
+  self: GameEngine,
   name: string,
   snapImmediately: boolean
 )
@@ -137,39 +60,122 @@ local function applyFormation(
     return
   end
 
+  local C = Utils.CONSTANTS
+
   for i, player in ipairs(self.players) do
     local coords = data[i]
     if coords then
-      player.hitboxX.value = coords[1]
-      player.hitboxY.value = coords[2]
-      player.targetX.value = coords[1]
-      player.targetY.value = coords[2]
+      -- Convert normalized coordinates (0-1) to pitch dimensions
+      local targetX = coords[1] * C.PITCH_WIDTH
+      local targetY = coords[2] * C.PITCH_HEIGHT
+
+      player.targetX.value = targetX
+      player.targetY.value = targetY
+      player.hitboxX.value = targetX
+      player.hitboxY.value = targetY
+
       if snapImmediately then
-        player.posX.value = coords[1]
-        player.posY.value = coords[2]
-        player.isDragged.value = false
+        player.posX.value = targetX
+        player.posY.value = targetY
       end
+    end
+  end
+
+  -- Calculate Radar Stats (Logic preserved from original)
+  local stats = Radar.calculateMetrics(self.players)
+  if self.radarVM then
+    local off = self.radarVM:getNumber('offence')
+    local def = self.radarVM:getNumber('defence')
+    local wid = self.radarVM:getNumber('width')
+    local dep = self.radarVM:getNumber('depth')
+    local com = self.radarVM:getNumber('compactness')
+    local sym = self.radarVM:getNumber('symmetry')
+
+    if off and def and wid and dep and com and sym then
+      off.value = stats.offence
+      def.value = stats.defence
+      wid.value = stats.width
+      dep.value = stats.depth
+      com.value = stats.compactness
+      sym.value = stats.symmetry
     end
   end
 end
 
-function init(self: FormationEngine, context: Context): boolean
-  print('Init: Starting Formation Engine...')
+-- ======================================================================================
+-- LIFECYCLE
+-- ======================================================================================
+function init(self: GameEngine, context: Context): boolean
+  print('Init: Starting Slimmed Game Engine...')
   self.context = context
   self.players = {}
   self.isInitialized = false
+  self.activeToolIndex = 1
+  self.tools = ToolManager.createTools() -- Initialize the Toolbox
+  self.clearAll = false
+  self.justCleared = false
 
   local mainVM = context:viewModel()
   if not mainVM then
-    print('Init Error: Could not find Main ViewModel')
     return false
   end
 
-  for i = 1, PLAYER_COUNT do
+  -- 1. Setup Bounds
+  local bMinX = mainVM:getNumber('boundsMinX')
+  local bMinY = mainVM:getNumber('boundsMinY')
+  local bMaxX = mainVM:getNumber('boundsMaxX')
+  local bMaxY = mainVM:getNumber('boundsMaxY')
+
+  if bMinX and bMinY and bMaxX and bMaxY then
+    self.hasBounds = true
+    self.minX, self.minY = bMinX.value, bMinY.value
+    self.maxX, self.maxY = bMaxX.value, bMaxY.value
+
+    bMinX:addListener(self, function()
+      self.minX = bMinX.value
+    end)
+    bMinY:addListener(self, function()
+      self.minY = bMinY.value
+    end)
+    bMaxX:addListener(self, function()
+      self.maxX = bMaxX.value
+    end)
+    bMaxY:addListener(self, function()
+      self.maxY = bMaxY.value
+    end)
+  else
+    self.hasBounds = false
+  end
+
+  -- 2. Setup Tool Switching
+  local toolProp = mainVM:getNumber('activeTool')
+  if toolProp then
+    self.activeToolIndex = math.floor(toolProp.value)
+    toolProp:addListener(self, function()
+      self.activeToolIndex = math.floor(toolProp.value)
+      -- Reset current interactions when switching tools
+      for _, tool in pairs(self.tools) do
+        -- Optional: specific reset logic per tool switch if needed
+      end
+    end)
+  end
+
+  local clearTrigger = mainVM:getTrigger('clearDrawingsTrigger')
+  if clearTrigger then
+    clearTrigger:addListener(self, function()
+      self.clearAll = true
+    end)
+  end
+
+  -- 3. Setup Players
+  local C = Utils.CONSTANTS
+  for i = 1, C.PLAYER_COUNT do
     local pVMName = 'player' .. i
     local pVMProp = mainVM:getViewModel(pVMName)
     if pVMProp and pVMProp.value then
       local pVM = pVMProp.value
+
+      -- Gather properties safely
       local pX, pY = pVM:getNumber('posX'), pVM:getNumber('posY')
       local tX, tY = pVM:getNumber('targetX'), pVM:getNumber('targetY')
       local hX, hY = pVM:getNumber('hitboxX'), pVM:getNumber('hitboxY')
@@ -178,122 +184,64 @@ function init(self: FormationEngine, context: Context): boolean
       local active = pVM:getBoolean('isActive')
 
       if pX and pY and tX and tY and hX and hY and spd and drag and active then
-        table.insert(self.players, {
-          vm = pVM,
-          posX = pX,
-          posY = pY,
-          targetX = tX,
-          targetY = tY,
-          hitboxX = hX,
-          hitboxY = hY,
-          speed = spd,
-          isDragged = drag,
-          isActive = active,
-        })
-      else
-        print('Init Warning: Missing properties for ' .. pVMName)
+        table.insert(
+          self.players,
+          {
+            vm = pVM,
+            posX = pX,
+            posY = pY,
+            targetX = tX,
+            targetY = tY,
+            hitboxX = hX,
+            hitboxY = hY,
+            speed = spd,
+            isDragged = drag,
+            isActive = active,
+            visualWeight = 0.0, -- Init for Heatmap
+          } :: PlayerState
+        )
       end
-    else
-      print('Init Warning: ViewModel not found: ' .. pVMName)
     end
   end
-  print('Init: Players bound: ' .. #self.players)
 
-  -- CHANGED: Using instance name 'selectionShape' from your screenshot
+  -- 4. Setup Shape UI
   local sVMProp = mainVM:getViewModel('selectionShape')
   if sVMProp and sVMProp.value then
     local sVM = sVMProp.value
+    self.shape = {
+      vm = sVM,
+      v1x = sVM:getNumber('v1x'),
+      v1y = sVM:getNumber('v1y'),
+      v2x = sVM:getNumber('v2x'),
+      v2y = sVM:getNumber('v2y'),
+      v3x = sVM:getNumber('v3x'),
+      v3y = sVM:getNumber('v3y'),
+      v4x = sVM:getNumber('v4x'),
+      v4y = sVM:getNumber('v4y'),
+      centerX = sVM:getNumber('centerX'),
+      centerY = sVM:getNumber('centerY'),
+      btnVis = sVM:getNumber('btnVis'),
+      shapeVis = sVM:getNumber('shapeVis'),
+      isCommitted = sVM:getBoolean('isCommitted'),
+      confirmTrigger = sVM:getTrigger('confirmTrigger'),
+    } :: ShapeState
 
-    -- Detailed Property Probing
-    local v1x, v1y = sVM:getNumber('v1x'), sVM:getNumber('v1y')
-    local v2x, v2y = sVM:getNumber('v2x'), sVM:getNumber('v2y')
-    local v3x, v3y = sVM:getNumber('v3x'), sVM:getNumber('v3y')
-    local v4x, v4y = sVM:getNumber('v4x'), sVM:getNumber('v4y')
-    local cx, cy = sVM:getNumber('centerX'), sVM:getNumber('centerY')
-    local bv = sVM:getNumber('btnVis') -- Matches screenshot
-    local sv = sVM:getNumber('shapeVis') -- Matches screenshot
-    local ic = sVM:getBoolean('isCommitted')
-    local ct = sVM:getTrigger('confirmTrigger')
-
-    -- DEBUG BLOCK: Pinpoint which property is missing
-    if not v1x or not v1y then
-      print('Debug: v1x/y missing')
-    end
-    if not v2x or not v2y then
-      print('Debug: v2x/y missing')
-    end
-    if not v3x or not v3y then
-      print('Debug: v3x/y missing')
-    end
-    if not v4x or not v4y then
-      print('Debug: v4x/y missing')
-    end
-    if not cx or not cy then
-      print('Debug: centerX/Y missing')
-    end
-    if not bv then
-      print('Debug: btnVis missing')
-    end
-    if not sv then
-      print('Debug: shapeVis missing')
-    end
-    if not ic then
-      print('Debug: isCommitted missing')
-    end
-    if not ct then
-      print('Debug: confirmTrigger missing')
-    end
-
-    if
-      v1x
-      and v1y
-      and v2x
-      and v2y
-      and v3x
-      and v3y
-      and v4x
-      and v4y
-      and cx
-      and cy
-      and bv
-      and sv
-      and ic
-      and ct
-    then
-      self.shape = {
-        vm = sVM,
-        v1x = v1x,
-        v1y = v1y,
-        v2x = v2x,
-        v2y = v2y,
-        v3x = v3x,
-        v3y = v3y,
-        v4x = v4x,
-        v4y = v4y,
-        centerX = cx,
-        centerY = cy,
-        btnVis = bv,
-        shapeVis = sv,
-        isCommitted = ic,
-        confirmTrigger = ct,
-      }
-      ct:addListener(self, function()
+    if self.shape and self.shape.confirmTrigger then
+      self.shape.confirmTrigger:addListener(self, function()
         if self.shape then
           self.shape.isCommitted.value = true
         end
       end)
-      print('Init: selectionShape successfully bound')
-    else
-      print(
-        'Init Error: selectionShape missing core properties (see Debug above)'
-      )
     end
-  else
-    print('Init Error: selectionShape instance not found')
   end
 
-  --applyFormation(self, '4-4-2 (Box)', true)
+  -- 5. Setup Radar
+  local rVMProp = mainVM:getViewModel('radarChart')
+  if rVMProp and rVMProp.value then
+    self.radarVM = rVMProp.value
+  end
 
+  -- 6. Setup Formation Selector
   local formationMapping = {
     [0] = '4-4-2 (Box)',
     [1] = '4-4-2 (Diamond)',
@@ -308,40 +256,59 @@ function init(self: FormationEngine, context: Context): boolean
     [10] = '4-4-2 (Box)',
     [11] = '5-3-2',
   }
-
   local selector = mainVM:getNumber('formationIndex')
   if selector then
     self.formationIndex = selector
-    applyFormation(
-      self,
-      formationMapping[math.floor(selector.value)] or '4-4-2 (Box)',
-      true
-    )
+    local initialName = formationMapping[math.floor(selector.value)]
+      or '4-4-2 (Box)'
+    applyFormation(self, initialName, true)
+
     selector:addListener(self, function(engine)
-      local index = math.floor(selector.value)
-      local formationName = formationMapping[index]
-      applyFormation(engine, formationName or '4-4-2 (Box)', false)
+      local name = formationMapping[math.floor(selector.value)] or '4-4-2 (Box)'
+      applyFormation(engine, name, false)
     end)
   end
 
   return #self.players > 0
 end
 
-function advance(self: FormationEngine, seconds: number): boolean
+function advance(self: GameEngine, seconds: number): boolean
+  -- 1. Global Clear Handling
+  if self.clearAll then
+    for _, tool in pairs(self.tools) do
+      tool:reset()
+    end
+    self.clearAll = false
+    self.justCleared = true
+    return true
+  end
+
+  if self.justCleared then
+    self.justCleared = false
+    return true
+  end
+
   if not self.isInitialized then
-    applyFormation(self, '4-4-2 (Box)', true)
+    applyFormation(self, '4-4-2 (Box)', false)
     self.isInitialized = true
   end
 
+  local C = Utils.CONSTANTS
+
+  -- 2. Player Physics & State Updates
   for _, player in ipairs(self.players) do
-    player.targetX.value = player.hitboxX.value
-    player.targetY.value = player.hitboxY.value
+    -- Reset drag target to hitbox (Engine Logic)
+    player.targetX.value, player.targetY.value =
+      player.hitboxX.value, player.hitboxY.value
+
     local curX, curY = player.posX.value, player.posY.value
     local tarX, tarY = player.targetX.value, player.targetY.value
     local moveSpeed = player.speed.value > 0 and player.speed.value or 5
     local dx, dy = tarX - curX, tarY - curY
 
-    if math.abs(dx) > ARRIVAL_THRESHOLD or math.abs(dy) > ARRIVAL_THRESHOLD then
+    if
+      math.abs(dx) > C.ARRIVAL_THRESHOLD or math.abs(dy) > C.ARRIVAL_THRESHOLD
+    then
       player.isDragged.value = true
       local lerp = 1 - math.exp(-moveSpeed * seconds)
       player.posX.value = curX + (dx * lerp)
@@ -350,20 +317,118 @@ function advance(self: FormationEngine, seconds: number): boolean
       player.posX.value, player.posY.value = tarX, tarY
       player.isDragged.value = false
     end
+
+    -- Update Heatmap Visual Weight (Lerp towards 1.0 if active, 0.0 if not)
+    local targetWeight = player.isActive.value and 1.0 or 0.0
+    if math.abs(player.visualWeight - targetWeight) > 0.01 then
+      local weightLerp = 1 - math.exp(-C.HEAT_LERP_SPEED * seconds)
+      player.visualWeight = player.visualWeight
+        + (targetWeight - player.visualWeight) * weightLerp
+    else
+      player.visualWeight = targetWeight
+    end
   end
 
-  updateSelectionShape(self)
+  -- 3. Shape Logic
+  if self.shape then
+    Utils.updateShape(self.shape, self.players)
+  end
+
+  -- 4. Radar Animation
+  if self.radarVM then
+    local stats = Radar.calculateMetrics(self.players)
+    local off = self.radarVM:getNumber('offence')
+    local def = self.radarVM:getNumber('defence')
+    local wid = self.radarVM:getNumber('width')
+    local dep = self.radarVM:getNumber('depth')
+    local com = self.radarVM:getNumber('compactness')
+    local sym = self.radarVM:getNumber('symmetry')
+
+    if off and def and wid and dep and com and sym then
+      local l = 1 - math.exp(-10 * seconds)
+      off.value = off.value + (stats.offence - off.value) * l
+      def.value = def.value + (stats.defence - def.value) * l
+      wid.value = wid.value + (stats.width - wid.value) * l
+      dep.value = dep.value + (stats.depth - dep.value) * l
+      com.value = com.value + (stats.compactness - com.value) * l
+      sym.value = sym.value + (stats.symmetry - sym.value) * l
+    end
+  end
+
   return true
 end
 
-return function(): Node<FormationEngine>
+-- ======================================================================================
+-- INPUT DELEGATION
+-- ======================================================================================
+
+function pointerDown(self: GameEngine, event: PointerEvent)
+  -- FIX: Pass event.position FIRST, and the bounds table SECOND
+  local bounds = {
+    minX = self.minX,
+    minY = self.minY,
+    maxX = self.maxX,
+    maxY = self.maxY,
+  }
+
+  if not Utils.isPointInBounds(event.position, bounds) then
+    return
+  end
+
+  local tool = self.tools[self.activeToolIndex]
+  if tool then
+    tool:onDown(self, event.position)
+  end
+end
+
+function pointerMove(self: GameEngine, event: PointerEvent)
+  local tool = self.tools[self.activeToolIndex]
+  if tool then
+    tool:onMove(self, event.position)
+  end
+end
+
+function pointerUp(self: GameEngine, event: PointerEvent)
+  local tool = self.tools[self.activeToolIndex]
+  if tool then
+    tool:onUp(self, event.position)
+  end
+end
+
+function draw(self: GameEngine, renderer: Renderer)
+  -- Delegate drawing to active tool
+  local tool = self.tools[self.activeToolIndex]
+  if tool then
+    tool:draw(self, renderer)
+  end
+
+  -- Note: The shape tool (Tool 4 in old code, now handled by UI)
+  -- actually renders via ViewModels, not the Canvas,
+  -- so we only calculate its logic in advance().
+end
+
+return function(): Node<GameEngine>
   return {
     players = {},
     shape = nil,
     context = nil,
     isInitialized = false,
     formationIndex = nil,
+    radarVM = nil,
+    hasBounds = false,
+    minX = 0,
+    minY = 0,
+    maxX = 0,
+    maxY = 0,
+    activeToolIndex = 1,
+    tools = {},
+    clearAll = false,
+    justCleared = false,
     init = init,
     advance = advance,
+    draw = draw,
+    pointerDown = pointerDown,
+    pointerMove = pointerMove,
+    pointerUp = pointerUp,
   }
 end

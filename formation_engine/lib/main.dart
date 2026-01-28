@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'football_field_view.dart';
+import 'formation_engine.dart';
 import 'package:rive/rive.dart' as rive;
-
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,7 +15,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter App!!',
+      title: 'Formation Engine',
       theme: ThemeData(
         colorSchemeSeed: Colors.indigo,
         useMaterial3: true,
@@ -27,9 +26,8 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         brightness: Brightness.dark,
       ),
-      home: const FootballFieldView(),
+      home: const FormationEngine(),
       debugShowCheckedModeBanner: false,
     );
   }
 }
-
